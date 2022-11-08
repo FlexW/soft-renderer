@@ -1,4 +1,7 @@
+use anyhow::Result;
+use glam::Vec3;
 use softbuffer::GraphicsContext;
+use tobj;
 use winit::event::VirtualKeyCode;
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
@@ -7,12 +10,15 @@ use winit_input_helper::WinitInputHelper;
 type Color = (u8, u8, u8);
 type PixelPosition = (u16, u16);
 
-fn main() {
+fn main() -> Result<()> {
     let mut input = WinitInputHelper::new();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut graphics_context = unsafe { GraphicsContext::new(window).unwrap() };
     let mut draw_state = DrawState::new();
+    draw_state.set_origin(DrawOrigin::BottomLeft);
+
+    let obj = load_obj("assets/african_head/african_head.obj")?;
 
     event_loop.run(move |event, _, control_flow| {
         if input.update(&event) {
@@ -28,33 +34,23 @@ fn main() {
             draw_state.resize(width as u16, height as u16);
             draw_state.clear();
 
-            draw_line(
-                &mut draw_state,
-                (0, 0),
-                ((width - 1) as u16, (height - 1) as u16),
-                (255, 255, 255),
-            );
-
-            draw_line(
-                &mut draw_state,
-                (0, (height - 1) as u16),
-                ((width - 1) as u16, 0),
-                (255, 255, 255),
-            );
-
-            draw_line(
-                &mut draw_state,
-                (0, (height - 1) as u16 / 2),
-                ((width - 1) as u16, (height - 1) as u16 / 2),
-                (255, 255, 255),
-            );
-
-            draw_line(
-                &mut draw_state,
-                ((width - 1) as u16 / 2, 0),
-                ((width - 1) as u16 / 2, (height - 1) as u16),
-                (255, 255, 255),
-            );
+            assert!(obj.len() % 3 == 0);
+            for i in (0..obj.len()).step_by(3) {
+                for j in 0..3 {
+                    let v0 = obj[i + j];
+                    let v1 = obj[i + ((j + 1) % 3)];
+                    let x0 = (v0.x + 1.0) * (width - 1) as f32 / 2.0;
+                    let y0 = (v0.y + 1.0) * (height - 1) as f32 / 2.0;
+                    let x1 = (v1.x + 1.0) * (width - 1) as f32 / 2.0;
+                    let y1 = (v1.y + 1.0) * (height - 1) as f32 / 2.0;
+                    draw_line(
+                        &mut draw_state,
+                        (x0 as u16, y0 as u16),
+                        (x1 as u16, y1 as u16),
+                        (255, 255, 255),
+                    );
+                }
+            }
 
             graphics_context.set_buffer(
                 draw_state.buffer(),
@@ -111,12 +107,49 @@ fn draw_line(
     }
 }
 
+fn load_obj(file_path: &str) -> Result<Vec<Vec3>> {
+    let options = tobj::LoadOptions {
+        single_index: true,
+        triangulate: true,
+        ..Default::default()
+    };
+
+    let (models, _materials) = tobj::load_obj(file_path, &options)?;
+
+    let mut vertices = Vec::new();
+    for model in models {
+        let mesh = model.mesh;
+        for face_idx in 0..(mesh.indices.len() / 3) {
+            let fv = 3; // Hardcode triangles
+            for i in 0..fv {
+                // Index
+                let idx = mesh.indices[fv * face_idx + i] as usize;
+
+                // Positions
+                let vx = mesh.positions[fv * idx + 0];
+                let vy = mesh.positions[fv * idx + 1];
+                let vz = mesh.positions[fv * idx + 2];
+                vertices.push(Vec3::new(vx, vy, vz));
+            }
+        }
+    }
+
+    Ok(vertices)
+}
+
 /// Holds a framebuffer for drawing
 struct DrawState {
     framebuffer: Vec<u32>,
     width: usize,
     height: usize,
     clear_color: Color,
+    draw_origin: DrawOrigin,
+}
+
+/// Origin for drawing operations
+enum DrawOrigin {
+    TopLeft,
+    BottomLeft,
 }
 
 impl DrawState {
@@ -127,7 +160,13 @@ impl DrawState {
             width: 0,
             height: 0,
             clear_color: (0, 0, 0),
+            draw_origin: DrawOrigin::TopLeft,
         }
+    }
+
+    /// Set the origin for draw operations
+    pub fn set_origin(&mut self, origin: DrawOrigin) {
+        self.draw_origin = origin;
     }
 
     /// Resizes the framebuffer if the width and height does not match
@@ -166,7 +205,15 @@ impl DrawState {
 
         let color = blue | (green << 8) | (red << 16);
 
-        self.framebuffer[(y * self.width) + x] = color;
+        match self.draw_origin {
+            DrawOrigin::TopLeft => {
+                self.framebuffer[(y * self.width) + x] = color
+            }
+            DrawOrigin::BottomLeft => {
+                self.framebuffer[((self.height - 1) - y) * self.width + x] =
+                    color
+            }
+        };
     }
 
     /// Returns a reference to the framebuffer
