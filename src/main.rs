@@ -20,12 +20,16 @@ fn main() -> Result<()> {
 
     let obj = load_obj("assets/african_head/african_head.obj")?;
 
-    let wireframe = false;
+    let mut wireframe = false;
 
     event_loop.run(move |event, _, control_flow| {
         if input.update(&event) {
             if input.key_pressed(VirtualKeyCode::Escape) {
                 control_flow.set_exit();
+            }
+
+            if input.key_pressed(VirtualKeyCode::F1) {
+                wireframe = !wireframe;
             }
 
             // Draw
