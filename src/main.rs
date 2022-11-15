@@ -23,6 +23,8 @@ fn main() -> Result<()> {
     let mut wireframe = false;
     let light_dir = Vec3::new(0.0, 0.0, -1.0);
 
+    draw_state.set_clear_color((81, 141, 237));
+
     event_loop.run(move |event, _, control_flow| {
         if input.update(&event) {
             if input.key_pressed(VirtualKeyCode::Escape) {
@@ -256,6 +258,11 @@ impl DrawState {
 
             self.framebuffer.resize(self.width * self.height, 0);
         }
+    }
+
+    /// Set the color that is used for the background
+    pub fn set_clear_color(&mut self, color: Color) {
+        self.clear_color = color;
     }
 
     /// Clears the background to the clear color
