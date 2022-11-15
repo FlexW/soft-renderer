@@ -1,14 +1,21 @@
-use anyhow::Result;
-use glam::{IVec2, Vec3};
+mod framebuffer;
+mod types;
+
+pub mod prelude {
+    pub use crate::framebuffer::*;
+    pub use crate::types::*;
+    pub use anyhow::Result;
+    pub use glam::{IVec2, Vec3};
+}
+
+use crate::prelude::*;
+
 use softbuffer::GraphicsContext;
 use tobj;
 use winit::event::VirtualKeyCode;
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
-
-type Color = (u8, u8, u8);
-type PixelPosition = (u16, u16);
 
 fn main() -> Result<()> {
     let mut input = WinitInputHelper::new();
@@ -217,9 +224,7 @@ fn load_obj(file_path: &str) -> Result<Vec<Vec3>> {
 
 /// Holds a framebuffer for drawing
 struct DrawState {
-    framebuffer: Vec<u32>,
-    width: usize,
-    height: usize,
+    framebuffer: Framebuffer,
     clear_color: Color,
     draw_origin: DrawOrigin,
 }
@@ -234,9 +239,7 @@ impl DrawState {
     /// Create a new DrawState
     pub fn new() -> Self {
         Self {
-            framebuffer: Vec::new(),
-            width: 0,
-            height: 0,
+            framebuffer: Framebuffer::new(0, 0),
             clear_color: (0, 0, 0),
             draw_origin: DrawOrigin::TopLeft,
         }
@@ -249,15 +252,7 @@ impl DrawState {
 
     /// Resizes the framebuffer if the width and height does not match
     pub fn resize(&mut self, width: u16, height: u16) {
-        let width = width as usize;
-        let height = height as usize;
-
-        if self.width != width || self.height != height {
-            self.width = width;
-            self.height = height;
-
-            self.framebuffer.resize(self.width * self.height, 0);
-        }
+        self.framebuffer.resize(width as u32, height as u32);
     }
 
     /// Set the color that is used for the background
@@ -267,40 +262,25 @@ impl DrawState {
 
     /// Clears the background to the clear color
     pub fn clear(&mut self) {
-        let red = self.clear_color.0 as u32;
-        let green = self.clear_color.1 as u32;
-        let blue = self.clear_color.2 as u32;
-        let color = blue | (green << 8) | (red << 16);
-
-        for i in 0..self.width * self.height {
-            self.framebuffer[i] = color;
-        }
+        self.framebuffer.set_color_rgb_all(self.clear_color);
     }
 
     /// Sets the pixel at the given position to the specified RGB color
     pub fn set_pixel_rgb(&mut self, pos: PixelPosition, rgb: Color) {
-        let x = pos.0 as usize;
-        let y = pos.1 as usize;
-
-        let red = rgb.0 as u32;
-        let green = rgb.1 as u32;
-        let blue = rgb.2 as u32;
-
-        let color = blue | (green << 8) | (red << 16);
-
         match self.draw_origin {
             DrawOrigin::TopLeft => {
-                self.framebuffer[(y * self.width) + x] = color
+                self.framebuffer.set_color_rgb(pos, rgb);
             }
             DrawOrigin::BottomLeft => {
-                self.framebuffer[((self.height - 1) - y) * self.width + x] =
-                    color
+                let height = self.framebuffer.height() as u16;
+                let pos = (pos.0, (height - 1) - pos.1);
+                self.framebuffer.set_color_rgb(pos, rgb);
             }
         };
     }
 
     /// Returns a reference to the framebuffer
     pub fn buffer(&self) -> &[u32] {
-        &self.framebuffer
+        &self.framebuffer.color_buffer()
     }
 }
