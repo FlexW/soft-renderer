@@ -21,6 +21,7 @@ fn main() -> Result<()> {
     let obj = load_obj("assets/african_head/african_head.obj")?;
 
     let mut wireframe = false;
+    let light_dir = Vec3::new(0.0, 0.0, -1.0);
 
     event_loop.run(move |event, _, control_flow| {
         if input.update(&event) {
@@ -43,6 +44,7 @@ fn main() -> Result<()> {
             assert!(obj.len() % 3 == 0);
             for i in (0..obj.len()).step_by(3) {
                 let mut triangle_coords = [IVec2::ZERO; 3];
+                let mut world_coords = [Vec3::ZERO; 3];
                 for j in 0..3 {
                     if wireframe {
                         let v0 = obj[i + j];
@@ -63,11 +65,22 @@ fn main() -> Result<()> {
                             ((v.x + 1.0) * (width - 1) as f32 / 2.0) as i32,
                             ((v.y + 1.0) * (height - 1) as f32 / 2.0) as i32,
                         );
+                        world_coords[j] = v;
                     }
                 }
                 if !wireframe {
-                    let c = ((i as f32 / obj.len() as f32) * 255.0) as u8;
-                    draw_triangle(triangle_coords, &mut draw_state, (c, c, c));
+                    let normal = (world_coords[2] - world_coords[0])
+                        .cross(world_coords[1] - world_coords[0])
+                        .normalize();
+                    let intensity = normal.dot(light_dir);
+                    if intensity > 0.0 {
+                        let c = (intensity * 255.0) as u8;
+                        draw_triangle(
+                            triangle_coords,
+                            &mut draw_state,
+                            (c, c, c),
+                        );
+                    }
                 }
             }
 
