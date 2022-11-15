@@ -116,14 +116,15 @@ fn draw_triangle(pts: [Vec3; 3], draw_state: &mut DrawState, color: Color) {
         }
     }
 
-    let mut x = bboxmin.x;
-    while x <= bboxmax.x {
-        let mut y = bboxmin.y;
-        while y <= bboxmax.y {
-            let bc_screen =
-                barycentric(pts[0], pts[1], pts[2], Vec3::new(x, y, 0.0));
+    for x in bboxmin.x as u32..=bboxmax.x as u32 {
+        for y in bboxmin.y as u32..=bboxmax.y as u32 {
+            let bc_screen = barycentric(
+                pts[0],
+                pts[1],
+                pts[2],
+                Vec3::new(x as f32, y as f32, 0.0),
+            );
             if bc_screen.x < 0.0 || bc_screen.y < 0.0 || bc_screen.z < 0.0 {
-                y += 1.0;
                 continue;
             }
             let mut z = 0.0;
@@ -135,9 +136,7 @@ fn draw_triangle(pts: [Vec3; 3], draw_state: &mut DrawState, color: Color) {
                 draw_state.framebuffer.set_depth(pos, z);
                 draw_state.set_pixel_rgb(pos, color);
             }
-            y += 1.0;
         }
-        x += 1.0;
     }
 }
 
