@@ -5,7 +5,7 @@ pub mod prelude {
     pub use crate::framebuffer::*;
     pub use crate::types::*;
     pub use anyhow::Result;
-    pub use glam::{IVec2, Vec3};
+    pub use glam::{IVec2, Vec2, Vec3};
 }
 
 use crate::prelude::*;
@@ -31,6 +31,7 @@ fn main() -> Result<()> {
     let light_dir = Vec3::new(0.0, 0.0, -1.0);
 
     draw_state.set_clear_color((81, 141, 237));
+    draw_state.set_depth_value(f32::MIN);
 
     event_loop.run(move |event, _, control_flow| {
         if input.update(&event) {
@@ -52,7 +53,7 @@ fn main() -> Result<()> {
 
             assert!(obj.len() % 3 == 0);
             for i in (0..obj.len()).step_by(3) {
-                let mut triangle_coords = [IVec2::ZERO; 3];
+                let mut triangle_coords = [Vec3::ZERO; 3];
                 let mut world_coords = [Vec3::ZERO; 3];
                 for j in 0..3 {
                     if wireframe {
@@ -70,9 +71,10 @@ fn main() -> Result<()> {
                         );
                     } else {
                         let v = obj[i + j];
-                        triangle_coords[j] = IVec2::new(
-                            ((v.x + 1.0) * (width - 1) as f32 / 2.0) as i32,
-                            ((v.y + 1.0) * (height - 1) as f32 / 2.0) as i32,
+                        triangle_coords[j] = Vec3::new(
+                            (v.x + 1.0) * (width - 1) as f32 / 2.0,
+                            (v.y + 1.0) * (height - 1) as f32 / 2.0,
+                            v.z,
                         );
                         world_coords[j] = v;
                     }
@@ -101,49 +103,59 @@ fn main() -> Result<()> {
         }
     });
 }
-fn draw_triangle(pts: [IVec2; 3], draw_state: &mut DrawState, color: Color) {
-    let width = std::i32::MAX;
-    let height = std::i32::MAX;
-    let mut bboxmin = IVec2::new(width - 1, height - 1);
-    let mut bboxmax = IVec2::new(0, 0);
+fn draw_triangle(pts: [Vec3; 3], draw_state: &mut DrawState, color: Color) {
+    let mut bboxmin = Vec2::new(f32::MAX, f32::MAX);
+    let mut bboxmax = Vec2::new(f32::MIN, f32::MIN);
+    let clamp = Vec2::new(f32::MAX, f32::MAX);
 
-    let clamp = IVec2::new(width - 1, height - 1);
+    // Calculate bounding box for triangle
     for i in 0..3 {
-        bboxmin.x = 0.max(bboxmin.x.min(pts[i].x));
-        bboxmin.y = 0.max(bboxmin.y.min(pts[i].y));
-
-        bboxmax.x = clamp.x.min(bboxmax.x.max(pts[i].x));
-        bboxmax.y = clamp.y.min(bboxmax.y.max(pts[i].y));
+        for j in 0..2 {
+            bboxmin[j] = 0.0_f32.max(bboxmin[j].min(pts[i][j]));
+            bboxmax[j] = clamp[j].min(bboxmax[j].max(pts[i][j]));
+        }
     }
 
-    for x in bboxmin.x..=bboxmax.x {
-        for y in bboxmin.y..=bboxmax.y {
-            let bc_screen = barycentric(pts, IVec2::new(x, y));
+    let mut x = bboxmin.x;
+    while x <= bboxmax.x {
+        let mut y = bboxmin.y;
+        while y <= bboxmax.y {
+            let bc_screen =
+                barycentric(pts[0], pts[1], pts[2], Vec3::new(x, y, 0.0));
             if bc_screen.x < 0.0 || bc_screen.y < 0.0 || bc_screen.z < 0.0 {
+                y += 1.0;
                 continue;
             }
-            draw_state.set_pixel_rgb((x as u16, y as u16), color);
+            let mut z = 0.0;
+            for i in 0..3 {
+                z += pts[i][2] * bc_screen[i];
+            }
+            let pos = (x as u16, y as u16);
+            if draw_state.framebuffer.depth(pos) < z {
+                draw_state.framebuffer.set_depth(pos, z);
+                draw_state.set_pixel_rgb(pos, color);
+            }
+            y += 1.0;
         }
+        x += 1.0;
     }
 }
 
-fn barycentric(pts: [IVec2; 3], point: IVec2) -> Vec3 {
-    let u = Vec3::new(
-        (pts[2][0] - pts[0][0]) as f32,
-        (pts[1][0] - pts[0][0]) as f32,
-        (pts[0][0] - point[0]) as f32,
-    )
-    .cross(Vec3::new(
-        (pts[2][1] - pts[0][1]) as f32,
-        (pts[1][1] - pts[0][1]) as f32,
-        (pts[0][1] - point[1]) as f32,
-    ));
-
-    if u.z.abs() < 1.0 {
-        return Vec3::new(-1.0, -1.0, -1.0);
+fn barycentric(a: Vec3, b: Vec3, c: Vec3, point: Vec3) -> Vec3 {
+    let mut s = [Vec3::ZERO; 2];
+    for i in (0..2).rev() {
+        s[i][0] = c[i] - a[i];
+        s[i][1] = b[i] - a[i];
+        s[i][2] = a[i] - point[i];
     }
 
-    Vec3::new(1.0 - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z)
+    let u = s[0].cross(s[1]);
+
+    if u.z.abs() > 1e-2 {
+        return Vec3::new(1.0 - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
+    }
+
+    Vec3::new(-1.0, -1.0, -1.0)
 }
 
 fn draw_line(
@@ -226,6 +238,7 @@ fn load_obj(file_path: &str) -> Result<Vec<Vec3>> {
 struct DrawState {
     framebuffer: Framebuffer,
     clear_color: Color,
+    depth_value: f32,
     draw_origin: DrawOrigin,
 }
 
@@ -241,6 +254,7 @@ impl DrawState {
         Self {
             framebuffer: Framebuffer::new(0, 0),
             clear_color: (0, 0, 0),
+            depth_value: 0.0,
             draw_origin: DrawOrigin::TopLeft,
         }
     }
@@ -260,9 +274,15 @@ impl DrawState {
         self.clear_color = color;
     }
 
+    /// Set the depth value that is used
+    pub fn set_depth_value(&mut self, depth: f32) {
+        self.depth_value = depth;
+    }
+
     /// Clears the background to the clear color
     pub fn clear(&mut self) {
         self.framebuffer.set_color_rgb_all(self.clear_color);
+        self.framebuffer.set_depth_all(self.depth_value);
     }
 
     /// Sets the pixel at the given position to the specified RGB color

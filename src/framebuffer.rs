@@ -3,7 +3,7 @@ use crate::prelude::*;
 /// A framebuffer holds a color and depth buffer
 pub struct Framebuffer {
     color_buffer: Vec<u32>,
-    depth_buffer: Vec<u32>,
+    depth_buffer: Vec<f32>,
 
     width: u32,
     height: u32,
@@ -14,8 +14,8 @@ impl Framebuffer {
     pub fn new(width: u32, height: u32) -> Self {
         let buffer_size = width * height;
         Self {
-            color_buffer: vec![0, buffer_size],
-            depth_buffer: vec![0, buffer_size],
+            color_buffer: vec![0; buffer_size as usize],
+            depth_buffer: vec![0.0; buffer_size as usize],
             width,
             height,
         }
@@ -29,7 +29,7 @@ impl Framebuffer {
 
             let buffer_size = (self.width * self.height) as usize;
             self.color_buffer.resize(buffer_size, 0);
-            self.depth_buffer.resize(buffer_size, 0);
+            self.depth_buffer.resize(buffer_size, 0.0);
         }
     }
 
@@ -53,7 +53,7 @@ impl Framebuffer {
     }
 
     /// Clears the depth buffer to the given value
-    pub fn set_depth_all(&mut self, depth: u32) {
+    pub fn set_depth_all(&mut self, depth: f32) {
         for d in &mut self.depth_buffer {
             *d = depth;
         }
@@ -66,9 +66,14 @@ impl Framebuffer {
     }
 
     /// Sets the depth at the given position to the specified depth
-    pub fn set_depth(&mut self, pos: PixelPosition, depth: u32) {
+    pub fn set_depth(&mut self, pos: PixelPosition, depth: f32) {
         let idx = self.pos_to_idx(pos);
         self.depth_buffer[idx] = depth;
+    }
+
+    /// Return the depth on the given position
+    pub fn depth(&self, pos: PixelPosition) -> f32 {
+        self.depth_buffer[self.pos_to_idx(pos)]
     }
 
     /// Returns a reference to the color buffer
