@@ -1,5 +1,5 @@
 use anyhow::Result;
-use glam::Vec3;
+use glam::{IVec2, Vec3};
 use softbuffer::GraphicsContext;
 use tobj;
 use winit::event::VirtualKeyCode;
@@ -52,6 +52,12 @@ fn main() -> Result<()> {
                 }
             }
 
+            draw_triangle(
+                [IVec2::new(0, 0), IVec2::new(100, 50), IVec2::new(100, 200)],
+                &mut draw_state,
+                (255, 0, 0),
+            );
+
             graphics_context.set_buffer(
                 draw_state.buffer(),
                 width as u16,
@@ -59,6 +65,50 @@ fn main() -> Result<()> {
             );
         }
     });
+}
+fn draw_triangle(pts: [IVec2; 3], draw_state: &mut DrawState, color: Color) {
+    let width = std::i32::MAX;
+    let height = std::i32::MAX;
+    let mut bboxmin = IVec2::new(width - 1, height - 1);
+    let mut bboxmax = IVec2::new(0, 0);
+
+    let clamp = IVec2::new(width - 1, height - 1);
+    for i in 0..3 {
+        bboxmin.x = 0.max(bboxmin.x.min(pts[i].x));
+        bboxmin.y = 0.max(bboxmin.y.min(pts[i].y));
+
+        bboxmax.x = clamp.x.min(bboxmax.x.max(pts[i].x));
+        bboxmax.y = clamp.y.min(bboxmax.y.max(pts[i].y));
+    }
+
+    for x in bboxmin.x..=bboxmax.x {
+        for y in bboxmin.y..=bboxmax.y {
+            let bc_screen = barycentric(pts, IVec2::new(x, y)).unwrap();
+            if bc_screen.x < 0.0 || bc_screen.y < 0.0 || bc_screen.z < 0.0 {
+                continue;
+            }
+            draw_state.set_pixel_rgb((x as u16, y as u16), color);
+        }
+    }
+}
+
+fn barycentric(pts: [IVec2; 3], point: IVec2) -> Option<Vec3> {
+    let u = Vec3::new(
+        (pts[2][0] - pts[0][0]) as f32,
+        (pts[1][0] - pts[0][0]) as f32,
+        (pts[0][0] - point[0]) as f32,
+    )
+    .cross(Vec3::new(
+        (pts[2][1] - pts[0][1]) as f32,
+        (pts[1][1] - pts[0][1]) as f32,
+        (pts[0][1] - point[1]) as f32,
+    ));
+
+    if u.z.abs() < 1.0 {
+        return None;
+    }
+
+    Some(Vec3::new(1.0 - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z))
 }
 
 fn draw_line(
