@@ -20,6 +20,8 @@ fn main() -> Result<()> {
 
     let obj = load_obj("assets/african_head/african_head.obj")?;
 
+    let wireframe = false;
+
     event_loop.run(move |event, _, control_flow| {
         if input.update(&event) {
             if input.key_pressed(VirtualKeyCode::Escape) {
@@ -36,27 +38,34 @@ fn main() -> Result<()> {
 
             assert!(obj.len() % 3 == 0);
             for i in (0..obj.len()).step_by(3) {
+                let mut triangle_coords = [IVec2::ZERO; 3];
                 for j in 0..3 {
-                    let v0 = obj[i + j];
-                    let v1 = obj[i + ((j + 1) % 3)];
-                    let x0 = (v0.x + 1.0) * (width - 1) as f32 / 2.0;
-                    let y0 = (v0.y + 1.0) * (height - 1) as f32 / 2.0;
-                    let x1 = (v1.x + 1.0) * (width - 1) as f32 / 2.0;
-                    let y1 = (v1.y + 1.0) * (height - 1) as f32 / 2.0;
-                    draw_line(
-                        &mut draw_state,
-                        (x0 as u16, y0 as u16),
-                        (x1 as u16, y1 as u16),
-                        (255, 255, 255),
-                    );
+                    if wireframe {
+                        let v0 = obj[i + j];
+                        let v1 = obj[i + ((j + 1) % 3)];
+                        let x0 = (v0.x + 1.0) * (width - 1) as f32 / 2.0;
+                        let y0 = (v0.y + 1.0) * (height - 1) as f32 / 2.0;
+                        let x1 = (v1.x + 1.0) * (width - 1) as f32 / 2.0;
+                        let y1 = (v1.y + 1.0) * (height - 1) as f32 / 2.0;
+                        draw_line(
+                            &mut draw_state,
+                            (x0 as u16, y0 as u16),
+                            (x1 as u16, y1 as u16),
+                            (255, 255, 255),
+                        );
+                    } else {
+                        let v = obj[i + j];
+                        triangle_coords[j] = IVec2::new(
+                            ((v.x + 1.0) * (width - 1) as f32 / 2.0) as i32,
+                            ((v.y + 1.0) * (height - 1) as f32 / 2.0) as i32,
+                        );
+                    }
+                }
+                if !wireframe {
+                    let c = ((i as f32 / obj.len() as f32) * 255.0) as u8;
+                    draw_triangle(triangle_coords, &mut draw_state, (c, c, c));
                 }
             }
-
-            draw_triangle(
-                [IVec2::new(0, 0), IVec2::new(100, 50), IVec2::new(100, 200)],
-                &mut draw_state,
-                (255, 0, 0),
-            );
 
             graphics_context.set_buffer(
                 draw_state.buffer(),
@@ -83,7 +92,7 @@ fn draw_triangle(pts: [IVec2; 3], draw_state: &mut DrawState, color: Color) {
 
     for x in bboxmin.x..=bboxmax.x {
         for y in bboxmin.y..=bboxmax.y {
-            let bc_screen = barycentric(pts, IVec2::new(x, y)).unwrap();
+            let bc_screen = barycentric(pts, IVec2::new(x, y));
             if bc_screen.x < 0.0 || bc_screen.y < 0.0 || bc_screen.z < 0.0 {
                 continue;
             }
@@ -92,7 +101,7 @@ fn draw_triangle(pts: [IVec2; 3], draw_state: &mut DrawState, color: Color) {
     }
 }
 
-fn barycentric(pts: [IVec2; 3], point: IVec2) -> Option<Vec3> {
+fn barycentric(pts: [IVec2; 3], point: IVec2) -> Vec3 {
     let u = Vec3::new(
         (pts[2][0] - pts[0][0]) as f32,
         (pts[1][0] - pts[0][0]) as f32,
@@ -105,10 +114,10 @@ fn barycentric(pts: [IVec2; 3], point: IVec2) -> Option<Vec3> {
     ));
 
     if u.z.abs() < 1.0 {
-        return None;
+        return Vec3::new(-1.0, -1.0, -1.0);
     }
 
-    Some(Vec3::new(1.0 - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z))
+    Vec3::new(1.0 - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z)
 }
 
 fn draw_line(
