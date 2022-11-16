@@ -99,7 +99,12 @@ impl Rasterizer {
     }
 
     /// Draw a triangle between the given points with the given color
-    pub fn draw_triangle(&mut self, pts: [Vec3; 3], color: Color) {
+    pub fn draw_triangle(
+        &mut self,
+        positions: [Vec3; 3],
+        tex_coords: [Vec2; 3],
+        texture: &Texture,
+    ) {
         let mut bboxmin = Vec2::new(f32::MAX, f32::MAX);
         let mut bboxmax = Vec2::new(f32::MIN, f32::MIN);
         let clamp = Vec2::new(f32::MAX, f32::MAX);
@@ -107,20 +112,20 @@ impl Rasterizer {
         // Calculate bounding box for triangle
         for i in 0..3 {
             for j in 0..2 {
-                bboxmin[j] = 0.0_f32.max(bboxmin[j].min(pts[i][j]));
-                bboxmax[j] = clamp[j].min(bboxmax[j].max(pts[i][j]));
+                bboxmin[j] = 0.0_f32.max(bboxmin[j].min(positions[i][j]));
+                bboxmax[j] = clamp[j].min(bboxmax[j].max(positions[i][j]));
             }
         }
 
         // Go through every pixel in the bounding box of the triangle and calculate
         // the barycentric coordinates for the pixel. If the barycentric coordinates
-        // non negative, the pixel is on the triangle and will be drawn
+        // are non negative, the pixel is on the triangle and will be drawn
         for x in bboxmin.x as u32..=bboxmax.x as u32 {
             for y in bboxmin.y as u32..=bboxmax.y as u32 {
                 let bc_screen = barycentric(
-                    pts[0],
-                    pts[1],
-                    pts[2],
+                    positions[0],
+                    positions[1],
+                    positions[2],
                     Vec3::new(x as f32, y as f32, 0.0),
                 );
                 if bc_screen.x < 0.0 || bc_screen.y < 0.0 || bc_screen.z < 0.0 {
@@ -129,14 +134,30 @@ impl Rasterizer {
                 // Calculate the z value for the depth test
                 let mut z = 0.0;
                 for i in 0..3 {
-                    z += pts[i][2] * bc_screen[i];
+                    z += positions[i][2] * bc_screen[i];
                 }
 
                 // Depth test
                 let pos = (x as u16, y as u16);
                 if self.framebuffer.depth(pos) < z {
                     self.framebuffer.set_depth(pos, z);
-                    self.set_pixel(pos, color);
+
+                    // Calculate the texture coordinate
+                    let mut tex_coord = Vec2::ZERO;
+                    for i in 0..3 {
+                        tex_coord += tex_coords[i] * bc_screen[i];
+                    }
+                    let color = texture.color(tex_coord);
+
+                    self.set_pixel(
+                        pos,
+                        color,
+                        // (
+                        //     (tex_coord.x * 255.0) as u8,
+                        //     (tex_coord.y * 255.0) as u8,
+                        //     0,
+                        // ),
+                    );
                 }
             }
         }
