@@ -13,6 +13,7 @@ pub mod prelude {
 use crate::prelude::*;
 
 use softbuffer::GraphicsContext;
+use std::time::SystemTime;
 use tobj;
 use winit::event::VirtualKeyCode;
 use winit::event_loop::EventLoop;
@@ -30,12 +31,20 @@ fn main() -> Result<()> {
     let obj = load_obj("assets/african_head/african_head.obj")?;
 
     let mut wireframe = false;
-    let light_dir = Vec3::new(0.0, 0.0, -1.0);
+    let mut light_dir = Vec3::new(0.0, 0.0, -1.0);
 
     rasterizer.set_clear_color((81, 141, 237));
     rasterizer.set_depth_value(f32::MIN);
 
+    let start_time = SystemTime::now();
+
     event_loop.run(move |event, _, control_flow| {
+        let current_time = SystemTime::now();
+        let time_passed = current_time.duration_since(start_time).unwrap();
+        let light_dir_x =
+            f32::sin(time_passed.as_millis() as f32 * 0.002).abs();
+        light_dir.x = light_dir_x;
+
         if input.update(&event) {
             if input.key_pressed(VirtualKeyCode::Escape) {
                 control_flow.set_exit();
@@ -88,6 +97,8 @@ fn main() -> Result<()> {
                     if intensity > 0.0 {
                         let c = (intensity * 255.0) as u8;
                         rasterizer.draw_triangle(triangle_coords, (c, c, c));
+                    } else {
+                        rasterizer.draw_triangle(triangle_coords, (0, 0, 0));
                     }
                 }
             }
