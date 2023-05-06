@@ -86,9 +86,9 @@ impl Rasterizer {
         let mut y = y0;
         for x in x0..x1 {
             if steep {
-                self.set_pixel((y as u16, x as u16), color);
+                self.set_pixel((y as u32, x as u32), color);
             } else {
-                self.set_pixel((x as u16, y as u16), color);
+                self.set_pixel((x as u32, y as u32), color);
             }
             error2 += derror2;
             if error2 > dx {
@@ -120,8 +120,8 @@ impl Rasterizer {
         // Go through every pixel in the bounding box of the triangle and calculate
         // the barycentric coordinates for the pixel. If the barycentric coordinates
         // are non negative, the pixel is on the triangle and will be drawn
-        for x in bboxmin.x as u32..=bboxmax.x as u32 {
-            for y in bboxmin.y as u32..=bboxmax.y as u32 {
+        for x in bboxmin.x as i32..=bboxmax.x as i32 {
+            for y in bboxmin.y as i32..=bboxmax.y as i32 {
                 let bc_screen = barycentric(
                     positions[0],
                     positions[1],
@@ -137,8 +137,19 @@ impl Rasterizer {
                     z += positions[i][2] * bc_screen[i];
                 }
 
+                // Is triangle on screen?
+                if x < 0
+                    || y < 0
+                    || x >= self.framebuffer.width() as i32
+                    || y >= self.framebuffer.height() as i32
+                {
+                    println!("Discard");
+                    continue;
+                }
+
                 // Depth test
-                let pos = (x as u16, y as u16);
+                let pos = (x as u32, y as u32);
+
                 if self.framebuffer.depth(pos) < z {
                     self.framebuffer.set_depth(pos, z);
 
@@ -170,7 +181,7 @@ impl Rasterizer {
                 self.framebuffer.set_color_rgb(pos, color);
             }
             DrawOrigin::BottomLeft => {
-                let height = self.framebuffer.height() as u16;
+                let height = self.framebuffer.height();
                 let pos = (pos.0, (height - 1) - pos.1);
                 self.framebuffer.set_color_rgb(pos, color);
             }

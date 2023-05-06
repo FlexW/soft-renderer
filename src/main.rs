@@ -1,15 +1,17 @@
+mod camera;
 mod framebuffer;
 mod rasterizer;
 mod texture;
 mod types;
 
 pub mod prelude {
+    pub use crate::camera::*;
     pub use crate::framebuffer::*;
     pub use crate::rasterizer::*;
     pub use crate::texture::*;
     pub use crate::types::*;
     pub use anyhow::Result;
-    pub use glam::{IVec2, Vec2, Vec3};
+    pub use glam::{IVec2, Mat4, Vec2, Vec3, Vec4};
     pub use image;
 }
 
@@ -28,6 +30,7 @@ fn main() -> Result<()> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut graphics_context = unsafe { GraphicsContext::new(window).unwrap() };
+    let mut camera = Camera::new(Vec3::new(0.0, 0.0, 3.0));
     let mut rasterizer = Rasterizer::new();
     rasterizer.set_origin(DrawOrigin::BottomLeft);
 
@@ -57,11 +60,39 @@ fn main() -> Result<()> {
                 wireframe = !wireframe;
             }
 
+            let move_speed = 5.0;
+            if input.key_held(VirtualKeyCode::W) {
+                camera.move_forward(move_speed);
+            }
+            if input.key_held(VirtualKeyCode::S) {
+                camera.move_backward(move_speed);
+            }
+            if input.key_held(VirtualKeyCode::A) {
+                camera.move_left(move_speed);
+            }
+            if input.key_held(VirtualKeyCode::D) {
+                camera.move_right(move_speed);
+            }
+
             // Draw
             let (width, height) = {
                 let size = graphics_context.window().inner_size();
                 (size.width, size.height)
             };
+
+            let viewport_mat = Mat4::orthographic_rh_gl(
+                width as f32,
+                0.0,
+                0.0,
+                height as f32,
+                255.0,
+                0.0,
+            )
+            .inverse();
+            let view_mat = camera.view_mat();
+            let mut proj_mat = Mat4::IDENTITY;
+            // proj_mat.w_axis.z = -1.0 / camera.position().z;
+
             rasterizer.resize(width as u16, height as u16);
             rasterizer.clear();
 
@@ -73,55 +104,22 @@ fn main() -> Result<()> {
                     let mut triangle_coords = [Vec3::ZERO; 3];
                     let mut tex_coords = [Vec2::ZERO; 3];
                     let mut world_coords = [Vec3::ZERO; 3];
+                    // Calculate vertex position
                     for j in 0..3 {
-                        if wireframe {
-                            let v0 = vertices[i + j];
-                            let v1 = vertices[i + ((j + 1) % 3)];
-
-                            let p0 = v0.position;
-                            let p1 = v1.position;
-
-                            let x0 = (p0.x + 1.0) * (width - 1) as f32 / 2.0;
-                            let y0 = (p0.y + 1.0) * (height - 1) as f32 / 2.0;
-                            let x1 = (p1.x + 1.0) * (width - 1) as f32 / 2.0;
-                            let y1 = (p1.y + 1.0) * (height - 1) as f32 / 2.0;
-                            rasterizer.draw_line(
-                                (x0 as u16, y0 as u16),
-                                (x1 as u16, y1 as u16),
-                                (255, 255, 255),
-                            );
-                        } else {
-                            let v = vertices[i + j];
-                            let p = v.position;
-                            triangle_coords[j] = Vec3::new(
-                                (p.x + 1.0) * (width - 1) as f32 / 2.0,
-                                (p.y + 1.0) * (height - 1) as f32 / 2.0,
-                                p.z,
-                            );
-                            tex_coords[j] = v.tex_coord;
-                            world_coords[j] = v.position;
-                        }
+                        let v = vertices[i + j];
+                        // let p = m2v((viewport_mat * proj_mat)
+                        //     * Mat4::from_translation(v.position));
+                        let p = (viewport_mat * view_mat)
+                            .transform_point3(v.position);
+                        triangle_coords[j] = p;
+                        tex_coords[j] = v.tex_coord;
+                        world_coords[j] = v.position;
                     }
-                    if !wireframe {
-                        let normal = (world_coords[2] - world_coords[0])
-                            .cross(world_coords[1] - world_coords[0])
-                            .normalize();
-                        let intensity = normal.dot(light_dir);
-                        if intensity > 0.0 {
-                            let c = (intensity * 255.0) as u8;
-                            rasterizer.draw_triangle(
-                                triangle_coords,
-                                tex_coords,
-                                mesh.material.diffuse_texture.as_ref().unwrap(),
-                            );
-                        } else {
-                            rasterizer.draw_triangle(
-                                triangle_coords,
-                                tex_coords,
-                                mesh.material.diffuse_texture.as_ref().unwrap(),
-                            );
-                        }
-                    }
+                    rasterizer.draw_triangle(
+                        triangle_coords,
+                        tex_coords,
+                        mesh.material.diffuse_texture.as_ref().unwrap(),
+                    );
                 }
             }
 
@@ -262,3 +260,28 @@ fn load_obj(file_path: &str) -> Result<Model> {
 
     Ok(Model::new(meshes))
 }
+
+/// Returns a matrix that projects coordinates from [-1, -1] to [x, y] and
+/// [1, 1] to [width, height]
+fn viewport(x: u32, y: u32, width: u32, height: u32, depth: u32) -> Mat4 {
+    let x = x as f32;
+    let y = y as f32;
+    let width = width as f32;
+    let height = height as f32;
+    let depth = depth as f32;
+
+    Mat4::from_cols(
+        Vec4::new(width / 2.0, 0.0, 0.0, x + width / 2.0),
+        Vec4::new(0.0, height / 2.0, 0.0, y + height / 2.0),
+        Vec4::new(0.0, 0.0, depth / 2.0, depth / 2.0),
+        Vec4::new(0.0, 0.0, 0.0, 1.0),
+    )
+}
+
+// fn m2v(m: Mat4) -> Vec3 {
+//     Vec3::new(
+//         m.x_axis[0] / m.w_axis[0],
+//         m.y_axis[0] / m.w_axis[0],
+//         m.z_axis[0] / m.w_axis[0],
+//     )
+// }
